@@ -49,8 +49,7 @@ def scan_blocks(chain, contract_info="contract_info.json"):
         print( f"Invalid chain: {chain}" )
         return 0
     
-    contracts = getContractInfo(chain)
-    w3 = connectTo(chain)
+    contracts = get_contract_info(chain, "contract_info.json")
 
     contract = w3.eth.contract(address=contracts['address'], abi=contracts['abi'])
 
@@ -63,8 +62,8 @@ def scan_blocks(chain, contract_info="contract_info.json"):
             logs = contract.events.Deposit().processReceipt(receipt)
             for log in logs:
                 if chain == 'source':
-                    destination_contracts = getContractInfo('destination')
-                    destination_w3 = connectTo('destination')
+                    destination_contracts = get_contract_info('destination', "contract_info.json")
+                    destination_w3 = connect_to('destination')
                     destination_contract = destination_w3.eth.contract(
                         address=destination_contracts['address'],
                         abi=destination_contracts['abi']
@@ -79,8 +78,8 @@ def scan_blocks(chain, contract_info="contract_info.json"):
             logs = contract.events.Unwrap().processReceipt(receipt)
             for log in logs:
                 if chain == 'destination':
-                    source_contracts = getContractInfo('source')
-                    source_w3 = connectTo('source')
+                    source_contracts = get_contract_info('source', "contract_info.json")
+                    source_w3 = connect_to('source')
                     source_contract = source_w3.eth.contract(
                         address=source_contracts['address'],
                         abi=source_contracts['abi']
@@ -93,6 +92,6 @@ def scan_blocks(chain, contract_info="contract_info.json"):
                     print(f"Unwrap event found in block {block_num}, called withdraw() on source")
 
 if __name__ == "__main__":
-    scanBlocks('source')
-    scanBlocks('destination')
+    scan_blocks('source')
+    scan_blocks('destination')
 

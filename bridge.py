@@ -3,7 +3,7 @@ from web3.providers.rpc import HTTPProvider
 from web3.middleware import ExtraDataToPOAMiddleware #Necessary for POA chains
 from datetime import datetime
 import json
-import pandas as pd
+
 
 
 def connect_to(chain):
@@ -50,7 +50,7 @@ def scan_blocks(chain, contract_info="contract_info.json"):
         return 0
     
     contracts = get_contract_info(chain, "contract_info.json")
-
+    w3 = connect_to(chain)
     contract = w3.eth.contract(address=contracts['address'], abi=contracts['abi'])
 
     latest_block = w3.eth.block_number
@@ -58,10 +58,10 @@ def scan_blocks(chain, contract_info="contract_info.json"):
         block = w3.eth.get_block(block_num, full_transactions=True)
         for tx in block.transactions:
             receipt = w3.eth.get_transaction_receipt(tx.hash)
-
-            logs = contract.events.Deposit().processReceipt(receipt)
-            for log in logs:
-                if chain == 'source':
+            if chain == 'source':
+                logs = contract.events.Deposit().process_receipt(receipt)
+                for log in logs:
+                
                     destination_contracts = get_contract_info('destination', "contract_info.json")
                     destination_w3 = connect_to('destination')
                     destination_contract = destination_w3.eth.contract(
@@ -74,10 +74,10 @@ def scan_blocks(chain, contract_info="contract_info.json"):
                         log['args']['amount']
                     ).transact({'from': w3.eth.default_account})
                     print(f"Deposit event found in block {block_num}, called wrap() on destination")
-
-            logs = contract.events.Unwrap().processReceipt(receipt)
-            for log in logs:
-                if chain == 'destination':
+            if chain == 'destination':
+                logs = contract.events.Unwrap().process_receipt(receipt)
+                for log in logs:
+                
                     source_contracts = get_contract_info('source', "contract_info.json")
                     source_w3 = connect_to('source')
                     source_contract = source_w3.eth.contract(

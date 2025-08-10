@@ -44,64 +44,93 @@ def scan_blocks(chain, contract_info="contract_info.json"):
 
     # This is different from Bridge IV where chain was "avax" or "bsc"
 
-    
-    
-    current_w3 = connect_to(chain)
-    other_chain = 'destination' if chain == 'source' else 'source'
-    other_w3 = connect_to(other_chain)
-
-    current_contract_data = get_contract_info(chain, contract_info)
-    other_contract_data = get_contract_info(other_chain, contract_info)
-
-    current_contract = current_w3.eth.contract(address=current_contract_data['address'], abi=current_contract_data['abi'])
-    other_contract = other_w3.eth.contract(address=other_contract_data['address'], abi=other_contract_data['abi'])
-
-    priv_key = "0x7c2ebf4fbcbf34710d0cc73ac49622276ac4c833034c3f05a326a6a14b06ec4f"
-    other_account = other_w3.eth.account.from_key(priv_key)
-    other_addr = other_account.address
-    nonce_counter = other_w3.eth.get_transaction_count(other_addr)
-
-    event_map = {
-        'source': ('Deposit', 'wrap', 43113),       
-        'destination': ('Unwrap', 'withdraw', 97) 
-    }
-    event_name, function_name, chain_id = event_map[chain]
-
-    latest_block = current_w3.eth.block_number
-    from_block = max(0, latest_block - 5) 
-
-
-    event_filter = getattr(current_contract.events, event_name).create_filter(from_block=from_block, to_block=latest_block)
-
-    try:
-        entries = event_filter.get_all_entries()
-    except Exception as ex:
-        print(f"Failed to fetch events: {ex}")
+    if chain not in ("source", "destination"):
+        print(f"Error: Unsupported chain '{chain}'. Must be 'source' or 'destination'.")
         return
 
-    for ev in entries:
-        try:
-            ev_args = ev.args
+    
+      # 连接当前链和对端链
+    current_w3 = connect_to(chain)
+    target_chain = "destination" if chain == "source" else "source"
+    target_w3 = connect_to(target_chain)
 
-            token = ev_args.token if chain == 'source' else ev_args.underlying_token
-            receiver = ev_args.recipient if chain == 'source' else ev_args.to
-            value = ev_args.amount
+    # 读取两条链的合约信息
+    contracts_data = {
+        chain: {
+            "web3": current_w3,
+            "contract_info": get_contract_info(chain, contract_info)
+        },
+        target_chain: {
+            "web3": target_w3,
+            "contract_info": get_contract_info(target_chain, contract_info)
+        }
+    }
 
-            txn = getattr(other_contract.functions, function_name)(token, receiver, value).build_transaction({
-                'from': other_addr,
-                'nonce': nonce_counter,
-                'gas': 300000,
-                'gasPrice': other_w3.eth.gas_price,
-                'chainId': chain_id
-            })
+    # 合约实例
+    current_contract = contracts_data[chain]["web3"].eth.contract(
+        address=contracts_data[chain]["contract_info"]["address"],
+        abi=contracts_data[chain]["contract_info"]["abi"]
+    )
+    target_contract = contracts_data[target_chain]["web3"].eth.contract(
+        address=contracts_data[target_chain]["contract_info"]["address"],
+        abi=contracts_data[target_chain]["contract_info"]["abi"]
+    )
 
-            signed_txn = other_w3.eth.account.sign_transaction(txn, priv_key)
-            tx_hash = other_w3.eth.send_raw_transaction(signed_txn.raw_transaction)
-            print(f"Transaction sent: {tx_hash.hex()} for event {event_name}")
+    # 设定用于发送交易的私钥和账户（注意私钥应安全管理）
+    private_key = "0x7c2ebf4fbcbf34710d0cc73ac49622276ac4c833034c3f05a326a6a14b06ec4f"
+    target_account = target_w3.eth.account.from_key(private_key)
+    target_address = target_account.address
+    nonce = target_w3.eth.get_transaction_count(target_address)
 
+    # 定义事件名称和相应调用函数、链ID映射
+    chain_params = {
+        "source": {
+            "event": "Deposit",
+            "call_function": "wrap",
+            "chain_id": 97
+        },
+        "destination": {
+            "event": "Unwrap",
+            "call_function": "withdraw",
+            "chain_id": 43113
+        }
+    }
 
-            other_w3.eth.wait_for_transaction_receipt(tx_hash)
-            nonce_counter += 1
-        except Exception as inner_ex:
-            print(f"Error handling event {ev}: {inner_ex}")
+    params = chain_params[chain]
+    latest_block = current_w3.eth.block_number
+    start_block = max(latest_block - 19, 0)
 
+    # 创建事件过滤器，扫描最近20个区块
+    event_filter = getattr(current_contract.events, params["event"]).create_filter(
+        from_block=start_block,
+        to_block=latest_block
+    )
+    event_logs = event_filter.get_all_entries()
+
+    # 处理监听到的每条事件日志
+    for ev in event_logs:
+        ev_args = ev["args"]
+
+        # 根据链类型取事件参数中的字段名不同
+        token = ev_args["token"] if chain == "source" else ev_args["underlying_token"]
+        recipient = ev_args["recipient"] if chain == "source" else ev_args["to"]
+        amount = ev_args["amount"]
+
+        # 构建跨链交易
+        txn = getattr(target_contract.functions, params["call_function"])(
+            token, recipient, amount
+        ).build_transaction({
+            "from": target_address,
+            "nonce": nonce,
+            "gas": 300000,
+            "gasPrice": target_w3.eth.gas_price,
+            "chainId": params["chain_id"]
+        })
+
+        # 签名并发送交易，等待确认
+        signed_txn = target_w3.eth.account.sign_transaction(txn, private_key)
+        tx_hash = target_w3.eth.send_raw_transaction(signed_txn.raw_transaction)
+        target_w3.eth.wait_for_transaction_receipt(tx_hash)
+
+        # nonce 自增以保证交易唯一性
+        nonce += 1

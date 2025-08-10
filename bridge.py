@@ -81,8 +81,8 @@ def scan_blocks(chain, contract_info="contract_info.json"):
     """
 
     # This is different from Bridge IV where chain was "avax" or "bsc"
-    private_key = '0x7c2ebf4fbcbf34710d0cc73ac49622276ac4c833034c3f05a326a6a14b06ec4f'
-    my_address = '0x34e0A82Ffa4a9C65A2818B3326019F446B95F256'
+    private_key = '0x1ffdb27a9756f077df3cf6746add67708e778e7ba6f2fe1be05d51cba4f03537'
+    my_address = '0x3ae933b44e7E416fDab3a04Bbfd6223F8835fB1A'
     
     w3_avax = connect_to('source')
     w3_bsc = connect_to('destination')

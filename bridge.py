@@ -4,7 +4,43 @@ from web3.middleware import ExtraDataToPOAMiddleware #Necessary for POA chains
 from datetime import datetime
 import json
 
+pending_nonces = {}
 
+def get_next_nonce(w3, address):
+    on_chain_nonce = w3.eth.get_transaction_count(address, 'pending')
+    pending_nonce = pending_nonces.get(address, 0)
+    return max(on_chain_nonce, pending_nonce)
+
+def update_nonce(address, nonce):
+    pending_nonces[address] = nonce + 1
+
+def send_signed_transaction(w3, contract, function_name, args, private_key):
+    account = w3.eth.account.from_key(private_key)
+    nonce = get_next_nonce(w3, account.address)
+    
+    tx = contract.functions[function_name](*args).build_transaction({
+        'from': account.address,
+        'nonce': nonce,
+        'gas': 500000,
+        'gasPrice': w3.eth.gas_price
+    })
+    
+    signed = w3.eth.account.sign_transaction(tx, private_key)
+    tx_hash = w3.eth.send_raw_transaction(signed.rawTransaction)
+    update_nonce(account.address, nonce)
+    
+    return tx_hash
+
+def safe_send_transaction(w3, contract, function_name, args, private_key, max_retries=3):
+    for attempt in range(max_retries):
+        try:
+            return send_signed_transaction(w3, contract, function_name, args, private_key)
+        except ValueError as e:
+            if 'nonce too low' in str(e) and attempt < max_retries - 1:
+                print(f"Nonce conflict detected, retrying... (Attempt {attempt + 1})")
+                time.sleep(1) 
+                continue
+            raise
 
 def connect_to(chain):
     if chain == 'source':  # The source contract chain is avax

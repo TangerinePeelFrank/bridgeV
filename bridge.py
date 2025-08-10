@@ -1,117 +1,107 @@
 from web3 import Web3
-from web3.middleware import geth_poa_middleware
+from web3.providers.rpc import HTTPProvider
+from web3.middleware import ExtraDataToPOAMiddleware #Necessary for POA chains
+from datetime import datetime
 import json
-import time
-
-def get_role_hash(role_name: str) -> bytes:
-    return Web3.keccak(text=role_name)
-
-def has_role(contract, role_name: str, address: str) -> bool:
-    role_hash = get_role_hash(role_name)
-    return contract.functions.hasRole(role_hash, address).call()
-
-def send_transaction_with_nonce_management(w3, contract, func, private_key, *args, gas=300000):
-    account = w3.eth.account.from_key(private_key)
-    address = account.address
-
-    nonce = w3.eth.get_transaction_count(address, 'pending')
-
-    tx = func(*args).build_transaction({
-        'from': address,
-        'nonce': nonce,
-        'gas': gas,
-        'gasPrice': w3.eth.gas_price,
-        'chainId': w3.eth.chain_id
-    })
-
-    signed_tx = w3.eth.account.sign_transaction(tx, private_key)
-    tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
-
-    receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
-    return receipt
 
 def connect_to(chain):
-    if chain == 'source':
-        url = "https://api.avax-test.network/ext/bc/C/rpc"
-    elif chain == 'destination':
-        url = "https://data-seed-prebsc-1-s1.binance.org:8545/"
-    else:
-        raise ValueError(f"Unknown chain {chain}")
-    w3 = Web3(Web3.HTTPProvider(url))
-    w3.middleware_onion.inject(geth_poa_middleware, layer=0)
+    if chain == 'source':  # The source contract chain is avax
+        api_url = f"https://api.avax-test.network/ext/bc/C/rpc" #AVAX C-chain testnet
+
+    if chain == 'destination':  # The destination contract chain is bsc
+        api_url = f"https://data-seed-prebsc-1-s1.binance.org:8545/" #BSC testnet
+
+    if chain in ['source','destination']:
+        w3 = Web3(Web3.HTTPProvider(api_url))
+        # inject the poa compatibility middleware to the innermost layer
+        w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
     return w3
 
-def get_contract_info(chain, filepath="contract_info.json"):
-    with open(filepath, "r") as f:
-        data = json.load(f)
-    return data[chain]
+
+def get_contract_info(chain, contract_info):
+    """
+        Load the contract_info file into a dictionary
+        This function is used by the autograder and will likely be useful to you
+    """
+    try:
+        with open(contract_info, 'r')  as f:
+            contracts = json.load(f)
+    except Exception as e:
+        print( f"Failed to read contract info\nPlease contact your instructor\n{e}" )
+        return 0
+    return contracts[chain]
+
+
 
 def scan_blocks(chain, contract_info="contract_info.json"):
-    if chain not in ["source", "destination"]:
-        print(f"Invalid chain: {chain}")
-        return
+    """
+        chain - (string) should be either "source" or "destination"
+        Scan the last 5 blocks of the source and destination chains
+        Look for 'Deposit' events on the source chain and 'Unwrap' events on the destination chain
+        When Deposit events are found on the source chain, call the 'wrap' function the destination chain
+        When Unwrap events are found on the destination chain, call the 'withdraw' function on the source chain
+    """
+
+    # This is different from Bridge IV where chain was "avax" or "bsc"
+
     
-    w3 = connect_to(chain)
-    opp_chain = "destination" if chain == "source" else "source"
-    w3_opp = connect_to(opp_chain)
+    
+    current_w3 = connect_to(chain)
+    other_chain = 'destination' if chain == 'source' else 'source'
+    other_w3 = connect_to(other_chain)
 
-    contract_info_curr = get_contract_info(chain, contract_info)
-    contract_info_opp = get_contract_info(opp_chain, contract_info)
+    current_contract_data = get_contract_info(chain, contract_info)
+    other_contract_data = get_contract_info(other_chain, contract_info)
 
-    contract = w3.eth.contract(address=contract_info_curr["address"], abi=contract_info_curr["abi"])
-    contract_opp = w3_opp.eth.contract(address=contract_info_opp["address"], abi=contract_info_opp["abi"])
+    current_contract = current_w3.eth.contract(address=current_contract_data['address'], abi=current_contract_data['abi'])
+    other_contract = other_w3.eth.contract(address=other_contract_data['address'], abi=other_contract_data['abi'])
 
-    private_key = "0x7c2ebf4fbcbf34710d0cc73ac49622276ac4c833034c3f05a326a6a14b06ec4f"
-    account = w3_opp.eth.account.from_key(private_key)
+    priv_key = "0x7c2ebf4fbcbf34710d0cc73ac49622276ac4c833034c3f05a326a6a14b06ec4f"
+    other_account = other_w3.eth.account.from_key(priv_key)
+    other_addr = other_account.address
+    nonce_counter = other_w3.eth.get_transaction_count(other_addr)
 
-    if chain == "destination":
-        if not has_role(contract_opp, "BRIDGE_WARDEN_ROLE", account.address):
-            print(f"Account {account.address} does NOT have WARDEN_ROLE on {opp_chain} contract.")
-            return
-        else:
-            print(f"Account {account.address} has WARDEN_ROLE on {opp_chain} contract.")
+    event_map = {
+        'source': ('Deposit', 'wrap', 43113),       
+        'destination': ('Unwrap', 'withdraw', 97) 
+    }
+    event_name, function_name, chain_id = event_map[chain]
 
-    current_block = w3.eth.block_number
-    config = {
-        "source": {
-            "event": "Deposit",
-            "func": "wrap"
-        },
-        "destination": {
-            "event": "Unwrap",
-            "func": "withdraw"
-        }
-    }[chain]
+    latest_block = current_w3.eth.block_number
+    from_block = max(0, latest_block - 5) 
 
-    event_filter = getattr(contract.events, config["event"]).create_filter(
-        from_block=current_block - 5,
-        to_block=current_block
-    )
-    events = event_filter.get_all_entries()
 
-    for event in events:
-        args = event["args"]
-        if chain == "source":
-            token = args["token"]
-            recipient = args["recipient"]
-            amount = args["amount"]
-        else:
-            token = args["underlying_token"]
-            recipient = args["to"]
-            amount = args["amount"]
+    event_filter = getattr(current_contract.events, event_name).create_filter(fromBlock=from_block, toBlock=latest_block)
 
-        print(f"Processing event: token={token}, recipient={recipient}, amount={amount}")
+    try:
+        entries = event_filter.get_all_entries()
+    except Exception as ex:
+        print(f"Failed to fetch events: {ex}")
+        return
 
+    for ev in entries:
         try:
-            receipt = send_transaction_with_nonce_management(
-                w3_opp,
-                contract_opp,
-                getattr(contract_opp.functions, config["func"]),
-                private_key,
-                token,
-                recipient,
-                amount
-            )
-            print(f"Transaction successful: {receipt.transactionHash.hex()}")
-        except Exception as e:
-            print(f"Error sending transaction: {e}")
+            ev_args = ev.args
+
+            token = ev_args.token if chain == 'source' else ev_args.underlying_token
+            receiver = ev_args.recipient if chain == 'source' else ev_args.to
+            value = ev_args.amount
+
+            txn = getattr(other_contract.functions, function_name)(token, receiver, value).build_transaction({
+                'from': other_addr,
+                'nonce': nonce_counter,
+                'gas': 300000,
+                'gasPrice': other_w3.eth.gas_price,
+                'chainId': chain_id
+            })
+
+            signed_txn = other_w3.eth.account.sign_transaction(txn, priv_key)
+            tx_hash = other_w3.eth.send_raw_transaction(signed_txn.raw_transaction)
+            print(f"Transaction sent: {tx_hash.hex()} for event {event_name}")
+
+
+            other_w3.eth.wait_for_transaction_receipt(tx_hash)
+            nonce_counter += 1
+        except Exception as inner_ex:
+            print(f"Error handling event {ev}: {inner_ex}")
+

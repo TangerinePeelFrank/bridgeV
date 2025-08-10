@@ -112,6 +112,3 @@ def scan_blocks(chain, contract_info="contract_info.json"):
                     tx_hash = source_w3.eth.send_raw_transaction(signed_txn.raw_transaction)
                     print(f"Withdraw tx sent: {tx_hash.hex()} at block {block_num}")
                     nonce += 1
-
-
-scan_blocks('source')

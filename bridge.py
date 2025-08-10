@@ -49,12 +49,12 @@ def scan_blocks(chain, contract_info="contract_info.json"):
         return
 
     
-      # 连接当前链和对端链
+
     current_w3 = connect_to(chain)
     target_chain = "destination" if chain == "source" else "source"
     target_w3 = connect_to(target_chain)
 
-    # 读取两条链的合约信息
+
     contracts_data = {
         chain: {
             "web3": current_w3,
@@ -66,7 +66,7 @@ def scan_blocks(chain, contract_info="contract_info.json"):
         }
     }
 
-    # 合约实例
+
     current_contract = contracts_data[chain]["web3"].eth.contract(
         address=contracts_data[chain]["contract_info"]["address"],
         abi=contracts_data[chain]["contract_info"]["abi"]
@@ -76,13 +76,11 @@ def scan_blocks(chain, contract_info="contract_info.json"):
         abi=contracts_data[target_chain]["contract_info"]["abi"]
     )
 
-    # 设定用于发送交易的私钥和账户（注意私钥应安全管理）
     private_key = "0x7c2ebf4fbcbf34710d0cc73ac49622276ac4c833034c3f05a326a6a14b06ec4f"
     target_account = target_w3.eth.account.from_key(private_key)
     target_address = target_account.address
     nonce = target_w3.eth.get_transaction_count(target_address)
 
-    # 定义事件名称和相应调用函数、链ID映射
     chain_params = {
         "source": {
             "event": "Deposit",
@@ -100,23 +98,20 @@ def scan_blocks(chain, contract_info="contract_info.json"):
     latest_block = current_w3.eth.block_number
     start_block = max(latest_block - 19, 0)
 
-    # 创建事件过滤器，扫描最近20个区块
     event_filter = getattr(current_contract.events, params["event"]).create_filter(
         from_block=start_block,
         to_block=latest_block
     )
     event_logs = event_filter.get_all_entries()
 
-    # 处理监听到的每条事件日志
+
     for ev in event_logs:
         ev_args = ev["args"]
 
-        # 根据链类型取事件参数中的字段名不同
         token = ev_args["token"] if chain == "source" else ev_args["underlying_token"]
         recipient = ev_args["recipient"] if chain == "source" else ev_args["to"]
         amount = ev_args["amount"]
 
-        # 构建跨链交易
         txn = getattr(target_contract.functions, params["call_function"])(
             token, recipient, amount
         ).build_transaction({
@@ -127,10 +122,9 @@ def scan_blocks(chain, contract_info="contract_info.json"):
             "chainId": params["chain_id"]
         })
 
-        # 签名并发送交易，等待确认
+
         signed_txn = target_w3.eth.account.sign_transaction(txn, private_key)
         tx_hash = target_w3.eth.send_raw_transaction(signed_txn.raw_transaction)
         target_w3.eth.wait_for_transaction_receipt(tx_hash)
 
-        # nonce 自增以保证交易唯一性
         nonce += 1

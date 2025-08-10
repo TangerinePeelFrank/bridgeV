@@ -71,7 +71,7 @@ def scan_blocks(chain, contract_info="contract_info.json"):
     from_block = max(0, latest_block - 5) 
 
 
-    event_filter = getattr(current_contract.events, event_name).create_filter(fromBlock=from_block, toBlock=latest_block)
+    event_filter = getattr(current_contract.events, event_name).create_filter(from_block=from_block, to_block=latest_block)
 
     try:
         entries = event_filter.get_all_entries()

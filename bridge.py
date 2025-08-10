@@ -45,71 +45,40 @@ def scan_blocks(chain, contract_info="contract_info.json"):
     """
 
     # This is different from Bridge IV where chain was "avax" or "bsc"
-    contracts = get_contract_info(chain, contract_info)
-    w3 = connect_to(chain)
-    contract = w3.eth.contract(address=contracts['address'], abi=contracts['abi'])
-    
-    private_key = "0x7c2ebf4fbcbf34710d0cc73ac49622276ac4c833034c3f05a326a6a14b06ec4f"
-    account = w3.eth.account.from_key(private_key)
-    w3.eth.default_account = account.address
-
-    latest_block = w3.eth.block_number
+    my_address      = '0x34e0A82Ffa4a9C65A2818B3326019F446B95F256'
+    w3_avax         = connect_to('source')
+    source_info     = get_contract_info('source', contract_info)
+    source_contract = w3_avax.eth.contract(address=source_info['address'], abi=source_info['abi'])
+    #
+    w3_bsc            = connect_to('destination')
+    destination_info  = get_contract_info('destination', contract_info)
+    destination_contract = w3_bsc.eth.contract(address=destination_info['address'], abi=destination_info['abi']) 
 
     if chain == 'source':
-        dest_info = get_contract_info('destination', contract_info)
-        dest_w3 = connect_to('destination')
-        dest_contract = dest_w3.eth.contract(address=dest_info['address'], abi=dest_info['abi'])
-        nonce = dest_w3.eth.get_transaction_count(account.address)
-
-        for block_num in range(latest_block - 5, latest_block + 1):
-            block = w3.eth.get_block(block_num, full_transactions=True)
-            for tx in block.transactions:
-                receipt = w3.eth.get_transaction_receipt(tx.hash)
-                logs = contract.events.Deposit().process_receipt(receipt)
-                for log in logs:
-                    print(f"Found Deposit: Token={log.args.token}, Amount={log.args.amount}")
-                    
-                    tx = dest_contract.functions.wrap(
-                        log.args.token,
-                        log.args.recipient,
-                        log.args.amount
-                    ).build_transaction({
-                        'from': account.address,
-                        'nonce': nonce,
-                        'gasPrice': dest_w3.eth.gas_price,
-                        'gas': 500000
-                    })
-                    signed_tx = dest_w3.eth.account.sign_transaction(tx, private_key)
-                    tx_hash = dest_w3.eth.send_raw_transaction(signed_tx.raw_transaction)
-                    print(f"Wrap tx sent: {tx_hash.hex()}")
-                    nonce += 1
-
-    elif chain == 'destination':
-        source_info = get_contract_info('source', contract_info)
-        source_w3 = connect_to('source')
-        source_contract = source_w3.eth.contract(address=source_info['address'], abi=source_info['abi'])
-        nonce = source_w3.eth.get_transaction_count(account.address)
-
-        for block_num in range(latest_block - 5, latest_block + 1):
-            block = w3.eth.get_block(block_num, full_transactions=True)
-            for tx in block.transactions:
-                receipt = w3.eth.get_transaction_receipt(tx.hash)
-                logs = contract.events.Unwrap().process_receipt(receipt)
-                for log in logs:
-                    print(f"Found Unwrap: Token={log.args.underlying_token}, Amount={log.args.amount}")
-                    
-                    tx = source_contract.functions.withdraw(
-                        log.args.underlying_token,
-                        log.args.to,
-                        log.args.amount
-                    ).build_transaction({
-                        'from': account.address,
-                        'nonce': nonce,
-                        'gasPrice': source_w3.eth.gas_price,
-                        'gas': 500000
-                    })
-                    signed_tx = source_w3.eth.account.sign_transaction(tx, private_key)
-                    tx_hash = source_w3.eth.send_raw_transaction(signed_tx.raw_transaction)
-                    print(f"Withdraw tx sent: {tx_hash.hex()}")
-                    nonce += 1
+        
+        arg_filter = {}
+        end_block = w3_avax.eth.get_block_number()
+        event_filter = source_contract.events.Deposit.create_filter(from_block=end_block-5,to_block=end_block,argument_filters=arg_filter)
+        events = event_filter.get_all_entries()
+        for evt in events:
+            wrap_deployment = destination_contract.functions.wrap(evt.args['token'],evt.args['recipient'],evt.args['amount']).build_transaction({'from': my_address, 
+                                                                                                                                   'gasPrice': w3_bsc.eth.gas_price, 
+                                                                                                                                   'nonce': w3_bsc.eth.get_transaction_count(my_address), 
+                                                                                                                                   'gas': 5 * (10 ** 6)})
+            wrap_signed     = w3_bsc.eth.account.sign_transaction(wrap_deployment, private_key='5c629f325a45701aa221bdd491d9ff48c0cb84c8a01a534090b0cf7af9fd0a62')
+            wrap_hash       = w3_bsc.eth.send_raw_transaction(wrap_signed.rawTransaction)
+            wrap_receipt    = w3_bsc.eth.wait_for_transaction_receipt(wrap_hash)
+    else:
+        arg_filter = {}
+        end_block = w3_bsc.eth.get_block_number()
+        event_filter = destination_contract.events.Unwrap.create_filter(from_block=end_block-5,to_block=end_block,argument_filters=arg_filter)
+        events = event_filter.get_all_entries()
+        for evt in events:
+            withdraw_deployment = source_contract.functions.withdraw(evt.args['underlying_token'],evt.args['to'],evt.args['amount']).build_transaction({'from': my_address, 
+                                                                                                                                  'gasPrice': w3_avax.eth.gas_price, 
+                                                                                                                                  'nonce': w3_avax.eth.get_transaction_count(my_address), 
+                                                                                                                                  'gas': 5 * (10 ** 6)})
+            withdraw_signed     = w3_avax.eth.account.sign_transaction(withdraw_deployment, private_key='5c629f325a45701aa221bdd491d9ff48c0cb84c8a01a534090b0cf7af9fd0a62')
+            withdraw_hash       = w3_avax.eth.send_raw_transaction(withdraw_signed.rawTransaction)
+            withdraw_receipt    = w3_avax.eth.wait_for_transaction_receipt(withdraw_hash)
 

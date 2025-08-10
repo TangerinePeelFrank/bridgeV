@@ -26,7 +26,7 @@ def send_signed_transaction(w3, contract, function_name, args, private_key):
     })
     
     signed = w3.eth.account.sign_transaction(tx, private_key)
-    tx_hash = w3.eth.send_raw_transaction(signed.rawTransaction)
+    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
     update_nonce(account.address, nonce)
     
     return tx_hash

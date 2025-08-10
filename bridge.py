@@ -45,14 +45,10 @@ def scan_blocks(chain, contract_info="contract_info.json"):
     """
 
     # This is different from Bridge IV where chain was "avax" or "bsc"
-    if chain not in ['source','destination']:
-        print(f"Invalid chain: {chain}")
-        return 0
     contracts = get_contract_info(chain, contract_info)
     w3 = connect_to(chain)
     contract = w3.eth.contract(address=contracts['address'], abi=contracts['abi'])
-
-
+    
     private_key = "0x7c2ebf4fbcbf34710d0cc73ac49622276ac4c833034c3f05a326a6a14b06ec4f"
     account = w3.eth.account.from_key(private_key)
     w3.eth.default_account = account.address
@@ -71,7 +67,9 @@ def scan_blocks(chain, contract_info="contract_info.json"):
                 receipt = w3.eth.get_transaction_receipt(tx.hash)
                 logs = contract.events.Deposit().process_receipt(receipt)
                 for log in logs:
-                    txn = dest_contract.functions.wrap(
+                    print(f"Found Deposit: Token={log.args.token}, Amount={log.args.amount}")
+                    
+                    tx = dest_contract.functions.wrap(
                         log.args.token,
                         log.args.recipient,
                         log.args.amount
@@ -79,11 +77,11 @@ def scan_blocks(chain, contract_info="contract_info.json"):
                         'from': account.address,
                         'nonce': nonce,
                         'gasPrice': dest_w3.eth.gas_price,
-                        'gas': 5_000_000
+                        'gas': 500000
                     })
-                    signed_txn = dest_w3.eth.account.sign_transaction(txn, private_key)
-                    tx_hash = dest_w3.eth.send_raw_transaction(signed_txn.raw_transaction)
-                    print(f"Wrap tx sent: {tx_hash.hex()} at block {block_num}")
+                    signed_tx = dest_w3.eth.account.sign_transaction(tx, private_key)
+                    tx_hash = dest_w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+                    print(f"Wrap tx sent: {tx_hash.hex()}")
                     nonce += 1
 
     elif chain == 'destination':
@@ -98,7 +96,9 @@ def scan_blocks(chain, contract_info="contract_info.json"):
                 receipt = w3.eth.get_transaction_receipt(tx.hash)
                 logs = contract.events.Unwrap().process_receipt(receipt)
                 for log in logs:
-                    txn = source_contract.functions.withdraw(
+                    print(f"Found Unwrap: Token={log.args.underlying_token}, Amount={log.args.amount}")
+                    
+                    tx = source_contract.functions.withdraw(
                         log.args.underlying_token,
                         log.args.to,
                         log.args.amount
@@ -106,9 +106,10 @@ def scan_blocks(chain, contract_info="contract_info.json"):
                         'from': account.address,
                         'nonce': nonce,
                         'gasPrice': source_w3.eth.gas_price,
-                        'gas': 5_000_000
+                        'gas': 500000
                     })
-                    signed_txn = source_w3.eth.account.sign_transaction(txn, private_key)
-                    tx_hash = source_w3.eth.send_raw_transaction(signed_txn.raw_transaction)
-                    print(f"Withdraw tx sent: {tx_hash.hex()} at block {block_num}")
+                    signed_tx = source_w3.eth.account.sign_transaction(tx, private_key)
+                    tx_hash = source_w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+                    print(f"Withdraw tx sent: {tx_hash.hex()}")
                     nonce += 1
+

@@ -45,6 +45,7 @@ def scan_blocks(chain, contract_info="contract_info.json"):
     """
 
     # This is different from Bridge IV where chain was "avax" or "bsc"
+    private_key = '0x7c2ebf4fbcbf34710d0cc73ac49622276ac4c833034c3f05a326a6a14b06ec4f'
     my_address      = '0x34e0A82Ffa4a9C65A2818B3326019F446B95F256'
     w3_avax         = connect_to('source')
     source_info     = get_contract_info('source', contract_info)
@@ -65,7 +66,7 @@ def scan_blocks(chain, contract_info="contract_info.json"):
                                                                                                                                    'gasPrice': w3_bsc.eth.gas_price, 
                                                                                                                                    'nonce': w3_bsc.eth.get_transaction_count(my_address), 
                                                                                                                                    'gas': 5 * (10 ** 6)})
-            wrap_signed     = w3_bsc.eth.account.sign_transaction(wrap_deployment, private_key='5c629f325a45701aa221bdd491d9ff48c0cb84c8a01a534090b0cf7af9fd0a62')
+            wrap_signed     = w3_bsc.eth.account.sign_transaction(wrap_deployment, private_key=private_key)
             wrap_hash       = w3_bsc.eth.send_raw_transaction(wrap_signed.rawTransaction)
             wrap_receipt    = w3_bsc.eth.wait_for_transaction_receipt(wrap_hash)
     else:
@@ -78,7 +79,7 @@ def scan_blocks(chain, contract_info="contract_info.json"):
                                                                                                                                   'gasPrice': w3_avax.eth.gas_price, 
                                                                                                                                   'nonce': w3_avax.eth.get_transaction_count(my_address), 
                                                                                                                                   'gas': 5 * (10 ** 6)})
-            withdraw_signed     = w3_avax.eth.account.sign_transaction(withdraw_deployment, private_key='5c629f325a45701aa221bdd491d9ff48c0cb84c8a01a534090b0cf7af9fd0a62')
+            withdraw_signed     = w3_avax.eth.account.sign_transaction(withdraw_deployment, private_key=private_key)
             withdraw_hash       = w3_avax.eth.send_raw_transaction(withdraw_signed.rawTransaction)
             withdraw_receipt    = w3_avax.eth.wait_for_transaction_receipt(withdraw_hash)
 

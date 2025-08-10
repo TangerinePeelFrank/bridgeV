@@ -3,44 +3,7 @@ from web3.providers.rpc import HTTPProvider
 from web3.middleware import ExtraDataToPOAMiddleware #Necessary for POA chains
 from datetime import datetime
 import json
-
-pending_nonces = {}
-
-def get_next_nonce(w3, address):
-    on_chain_nonce = w3.eth.get_transaction_count(address, 'pending')
-    pending_nonce = pending_nonces.get(address, 0)
-    return max(on_chain_nonce, pending_nonce)
-
-def update_nonce(address, nonce):
-    pending_nonces[address] = nonce + 1
-
-def send_signed_transaction(w3, contract, function_name, args, private_key):
-    account = w3.eth.account.from_key(private_key)
-    nonce = get_next_nonce(w3, account.address)
-    
-    tx = contract.functions[function_name](*args).build_transaction({
-        'from': account.address,
-        'nonce': nonce,
-        'gas': 500000,
-        'gasPrice': w3.eth.gas_price
-    })
-    
-    signed = w3.eth.account.sign_transaction(tx, private_key)
-    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
-    update_nonce(account.address, nonce)
-    
-    return tx_hash
-
-def safe_send_transaction(w3, contract, function_name, args, private_key, max_retries=3):
-    for attempt in range(max_retries):
-        try:
-            return send_signed_transaction(w3, contract, function_name, args, private_key)
-        except ValueError as e:
-            if 'nonce too low' in str(e) and attempt < max_retries - 1:
-                print(f"Nonce conflict detected, retrying... (Attempt {attempt + 1})")
-                time.sleep(1) 
-                continue
-            raise
+import pandas as pd
 
 def connect_to(chain):
     if chain == 'source':  # The source contract chain is avax
@@ -81,54 +44,75 @@ def scan_blocks(chain, contract_info="contract_info.json"):
     """
 
     # This is different from Bridge IV where chain was "avax" or "bsc"
-    private_key = '0x7c2ebf4fbcbf34710d0cc73ac49622276ac4c833034c3f05a326a6a14b06ec4f'
-    my_address = '0x34e0A82Ffa4a9C65A2818B3326019F446B95F256'
+    if chain not in ['source','destination']:
+        print( f"Invalid chain: {chain}" )
+        return 0
     
-    w3_avax = connect_to('source')
-    w3_bsc = connect_to('destination')
-    source_info = get_contract_info('source', contract_info)
-    source_contract = w3_avax.eth.contract(address=source_info['address'], abi=source_info['abi'])
-    
-    dest_info = get_contract_info('destination', contract_info)
-    dest_contract = w3_bsc.eth.contract(address=dest_info['address'], abi=dest_info['abi'])
+    #YOUR CODE HERE
+    # Connect to both chains
+    listener_web3 = connect_to(chain)
+    opposite_chain = "destination" if chain == "source" else "source"
+    opposite_web3 = connect_to(opposite_chain)
 
-    if chain == 'source':
-        end_block = w3_avax.eth.get_block_number()
-        event_filter = source_contract.events.Deposit.create_filter(
-            from_block=end_block-5,
-            to_block=end_block
-        )
-        
-        for evt in event_filter.get_all_entries():
-            try:
-                tx_hash = safe_send_transaction(
-                    w3_bsc,
-                    dest_contract,
-                    'wrap',
-                    [evt.args['token'], evt.args['recipient'], evt.args['amount']],
-                    private_key
-                )
-                print(f"Wrap tx sent: {tx_hash.hex()}")
-            except Exception as e:
-                print(f"Failed to process deposit: {str(e)}")
+    contract_configs = {
+        chain: {
+            "web3": listener_web3,
+            "info": get_contract_info(chain, contract_info)
+        },
+        opposite_chain: {
+            "web3": opposite_web3,
+            "info": get_contract_info(opposite_chain, contract_info)
+        }
+    }
+    listener_contract = contract_configs[chain]["web3"].eth.contract(
+        abi=contract_configs[chain]["info"]["abi"],
+        address=contract_configs[chain]["info"]["address"]
+    )
+    opposite_contract = contract_configs[opposite_chain]["web3"].eth.contract(
+        abi=contract_configs[opposite_chain]["info"]["abi"],
+        address=contract_configs[opposite_chain]["info"]["address"]
+    )
+    private_key = "0x7c2ebf4fbcbf34710d0cc73ac49622276ac4c833034c3f05a326a6a14b06ec4f"
+    opposite_account = opposite_web3.eth.account.from_key(private_key)
+    opposite_account_address = opposite_account.address
+    opposite_nonce = opposite_web3.eth.get_transaction_count(opposite_account_address)
 
-    elif chain == 'destination':
-        end_block = w3_bsc.eth.get_block_number()
-        event_filter = dest_contract.events.Unwrap.create_filter(
-            from_block=end_block-5,
-            to_block=end_block
-        )
-        
-        for evt in event_filter.get_all_entries():
-            try:
-                tx_hash = safe_send_transaction(
-                    w3_avax,
-                    source_contract,
-                    'withdraw',
-                    [evt.args['underlying_token'], evt.args['to'], evt.args['amount']],
-                    private_key
-                )
-                print(f"Withdraw tx sent: {tx_hash.hex()}")
-            except Exception as e:
-                print(f"Failed to process unwrap: {str(e)}")
+    current_block = listener_web3.eth.block_number
+    chain_config = {
+        "source": {
+            "event_name": "Deposit",
+            "opposite_function": "wrap",
+            "chain_id": 97
+        },
+        "destination": {
+            "event_name": "Unwrap",
+            "opposite_function": "withdraw",
+            "chain_id": 43113
+        }
+    }
+    config = chain_config[chain]
+    event_filter = getattr(listener_contract.events, config["event_name"]).create_filter(
+        from_block=current_block - 19, to_block=current_block
+    )
+    events = event_filter.get_all_entries()
 
+    for event in events:
+        args = event["args"]
+        token_address = args["token"] if chain == "source" else args["underlying_token"]
+        recipient_address = args["recipient"] if chain == "source" else args["to"]
+        amount = args["amount"]
+
+        transaction = getattr(opposite_contract.functions, config["opposite_function"])(
+            token_address, recipient_address, amount
+        ).build_transaction({
+            "from": opposite_account_address,
+            "nonce": opposite_nonce,
+            "gas": 300000,
+            "gasPrice": opposite_web3.eth.gas_price,
+            "chainId": config["chain_id"]
+        })
+
+        opposite_nonce += 1
+        signed_transaction = opposite_web3.eth.account.sign_transaction(transaction, private_key)
+        transaction_hash = opposite_web3.eth.send_raw_transaction(signed_transaction.raw_transaction)
+        opposite_web3.eth.wait_for_transaction_receipt(transaction_hash)

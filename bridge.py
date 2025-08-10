@@ -67,7 +67,7 @@ def scan_blocks(chain, contract_info="contract_info.json"):
                                                                                                                                    'nonce': w3_bsc.eth.get_transaction_count(my_address), 
                                                                                                                                    'gas': 5 * (10 ** 6)})
             wrap_signed     = w3_bsc.eth.account.sign_transaction(wrap_deployment, private_key=private_key)
-            wrap_hash       = w3_bsc.eth.send_raw_transaction(wrap_signed.rawTransaction)
+            wrap_hash       = w3_bsc.eth.send_raw_transaction(wrap_signed.raw_transaction)
             wrap_receipt    = w3_bsc.eth.wait_for_transaction_receipt(wrap_hash)
     else:
         arg_filter = {}
@@ -80,6 +80,6 @@ def scan_blocks(chain, contract_info="contract_info.json"):
                                                                                                                                   'nonce': w3_avax.eth.get_transaction_count(my_address), 
                                                                                                                                   'gas': 5 * (10 ** 6)})
             withdraw_signed     = w3_avax.eth.account.sign_transaction(withdraw_deployment, private_key=private_key)
-            withdraw_hash       = w3_avax.eth.send_raw_transaction(withdraw_signed.rawTransaction)
+            withdraw_hash       = w3_avax.eth.send_raw_transaction(withdraw_signed.raw_transaction)
             withdraw_receipt    = w3_avax.eth.wait_for_transaction_receipt(withdraw_hash)
 

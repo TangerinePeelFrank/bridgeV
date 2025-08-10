@@ -82,7 +82,7 @@ def scan_blocks(chain, contract_info="contract_info.json"):
                         'gas': 5_000_000
                     })
                     signed_txn = dest_w3.eth.account.sign_transaction(txn, private_key)
-                    tx_hash = dest_w3.eth.send_raw_transaction(signed_txn.rawTransaction)
+                    tx_hash = dest_w3.eth.send_raw_transaction(signed_txn.raw_transaction)
                     print(f"Wrap tx sent: {tx_hash.hex()} at block {block_num}")
                     nonce += 1
 
@@ -109,8 +109,9 @@ def scan_blocks(chain, contract_info="contract_info.json"):
                         'gas': 5_000_000
                     })
                     signed_txn = source_w3.eth.account.sign_transaction(txn, private_key)
-                    tx_hash = source_w3.eth.send_raw_transaction(signed_txn.rawTransaction)
+                    tx_hash = source_w3.eth.send_raw_transaction(signed_txn.raw_transaction)
                     print(f"Withdraw tx sent: {tx_hash.hex()} at block {block_num}")
                     nonce += 1
 
 
+scan_blocks('source')

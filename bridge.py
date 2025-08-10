@@ -46,40 +46,53 @@ def scan_blocks(chain, contract_info="contract_info.json"):
 
     # This is different from Bridge IV where chain was "avax" or "bsc"
     private_key = '0x7c2ebf4fbcbf34710d0cc73ac49622276ac4c833034c3f05a326a6a14b06ec4f'
-    my_address      = '0x34e0A82Ffa4a9C65A2818B3326019F446B95F256'
-    w3_avax         = connect_to('source')
-    source_info     = get_contract_info('source', contract_info)
+    my_address = '0x34e0A82Ffa4a9C65A2818B3326019F446B95F256'
+    
+    w3_avax = connect_to('source')
+    w3_bsc = connect_to('destination')
+    source_info = get_contract_info('source', contract_info)
     source_contract = w3_avax.eth.contract(address=source_info['address'], abi=source_info['abi'])
-    #
-    w3_bsc            = connect_to('destination')
-    destination_info  = get_contract_info('destination', contract_info)
-    destination_contract = w3_bsc.eth.contract(address=destination_info['address'], abi=destination_info['abi']) 
+    
+    dest_info = get_contract_info('destination', contract_info)
+    dest_contract = w3_bsc.eth.contract(address=dest_info['address'], abi=dest_info['abi'])
 
     if chain == 'source':
-        
-        arg_filter = {}
         end_block = w3_avax.eth.get_block_number()
-        event_filter = source_contract.events.Deposit.create_filter(from_block=end_block-5,to_block=end_block,argument_filters=arg_filter)
-        events = event_filter.get_all_entries()
-        for evt in events:
-            wrap_deployment = destination_contract.functions.wrap(evt.args['token'],evt.args['recipient'],evt.args['amount']).build_transaction({'from': my_address, 
-                                                                                                                                   'gasPrice': w3_bsc.eth.gas_price, 
-                                                                                                                                   'nonce': w3_bsc.eth.get_transaction_count(my_address), 
-                                                                                                                                   'gas': 5 * (10 ** 6)})
-            wrap_signed     = w3_bsc.eth.account.sign_transaction(wrap_deployment, private_key=private_key)
-            wrap_hash       = w3_bsc.eth.send_raw_transaction(wrap_signed.raw_transaction)
-            wrap_receipt    = w3_bsc.eth.wait_for_transaction_receipt(wrap_hash)
-    else:
-        arg_filter = {}
+        event_filter = source_contract.events.Deposit.create_filter(
+            from_block=end_block-5,
+            to_block=end_block
+        )
+        
+        for evt in event_filter.get_all_entries():
+            try:
+                tx_hash = safe_send_transaction(
+                    w3_bsc,
+                    dest_contract,
+                    'wrap',
+                    [evt.args['token'], evt.args['recipient'], evt.args['amount']],
+                    private_key
+                )
+                print(f"Wrap tx sent: {tx_hash.hex()}")
+            except Exception as e:
+                print(f"Failed to process deposit: {str(e)}")
+
+    elif chain == 'destination':
         end_block = w3_bsc.eth.get_block_number()
-        event_filter = destination_contract.events.Unwrap.create_filter(from_block=end_block-5,to_block=end_block,argument_filters=arg_filter)
-        events = event_filter.get_all_entries()
-        for evt in events:
-            withdraw_deployment = source_contract.functions.withdraw(evt.args['underlying_token'],evt.args['to'],evt.args['amount']).build_transaction({'from': my_address, 
-                                                                                                                                  'gasPrice': w3_avax.eth.gas_price, 
-                                                                                                                                  'nonce': w3_avax.eth.get_transaction_count(my_address), 
-                                                                                                                                  'gas': 5 * (10 ** 6)})
-            withdraw_signed     = w3_avax.eth.account.sign_transaction(withdraw_deployment, private_key=private_key)
-            withdraw_hash       = w3_avax.eth.send_raw_transaction(withdraw_signed.raw_transaction)
-            withdraw_receipt    = w3_avax.eth.wait_for_transaction_receipt(withdraw_hash)
+        event_filter = dest_contract.events.Unwrap.create_filter(
+            from_block=end_block-5,
+            to_block=end_block
+        )
+        
+        for evt in event_filter.get_all_entries():
+            try:
+                tx_hash = safe_send_transaction(
+                    w3_avax,
+                    source_contract,
+                    'withdraw',
+                    [evt.args['underlying_token'], evt.args['to'], evt.args['amount']],
+                    private_key
+                )
+                print(f"Withdraw tx sent: {tx_hash.hex()}")
+            except Exception as e:
+                print(f"Failed to process unwrap: {str(e)}")
 
